@@ -1,0 +1,36 @@
+﻿<style>
+    #sse-menu-main {
+        width: 200px;
+        height: 105px;
+    }
+    .sse-centered {
+        margin: 0;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        -ms-transform: translate(-50%, -50%);
+        transform: translate(-50%, -50%);
+        padding: 5px;
+        background-color: black;
+    }
+    .sse-splitter-h {
+        width: 100%;
+        height: 5px;
+        float: left;
+    }
+    .sse-menu-main-item {
+        float: left;
+        width: 100%;
+        height: 50%;
+    }
+</style>
+
+<script src="~/js/game.js"></script>
+
+<div id="sse-container">
+    <div class="sse-centered" id="sse-menu-main">
+        <input class="sse-menu-main-item" id="sse-tb-data" type="text" name="name" value="" />
+        <div class="sse-splitter-h"></div>
+        <button class="sse-menu-main-item" id="sse-btn-load">LOAD</button>
+    </div>
+</div>

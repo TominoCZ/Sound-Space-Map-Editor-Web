@@ -6,20 +6,24 @@ let notes = [];
 let noteSpeed = 500;
 let screenX = 300;
 
+let startNote;
+let gridSize = 300;
+
 let lastHit = -1;
 let hitIndex = -1;
 
 let brightness = 32;
 
 let soundLink;
-let soundTime;
+let soundTime = 0;
+let soundTimeLast = 0;
 let sound;
 
 let hitSound;
 let clickSound;
 
 function setup() {
-    createCanvas(windowWidth, windowHeight);
+    createCanvas(windowWidth, windowHeight, P2D);
 }
 
 function windowResized() {
@@ -34,8 +38,6 @@ function keyPressed(evt) {
     if (sound == null || !evt.isTrusted)
         return;
 
-    console.log(key);
-
     if (evt.key == ' ') {
         if (sound.isPaused())
             sound.play(sound.currentTime());
@@ -49,66 +51,213 @@ function preload() {
         return;
 
     sound = loadSound(soundLink, soundLoaded);
+    sound.setVolume(0.1);
 
     if (hitSound == null) {
         hitSound = loadSound("/sounds/hit.wav");
+        hitSound.setVolume(0.3);
     }
     if (clickSound == null) {
         clickSound = loadSound("/sounds/click.wav");
+        clickSound.setVolume(0.3);
     }
 }
 
-function drawNotes() {
-    if (sound == null || notes.length == 0)
-        return;
+function getTime() {
+    if (sound == null)
+        return { Actual:0, Smooth:0 };
 
     let songTime = sound.currentTime();
+    let newTime = songTime;
 
-    if (!sound.isPaused())
-        soundTime = songTime;
-    else
+    let diff = songTime - soundTimeLast;
+
+    soundTimeLast = songTime;
+
+    if (sound.isPaused() && sound.currentTime() == 0) {
         songTime = soundTime;
+        newTime = soundTime;
+    }
+    else if (sound.isPlaying() && sound.currentTime() > 0) {
+        diff = deltaTime / 1000 - diff;
 
-    let third = 50 / 3;
+        newTime += diff - deltaTime / 1000 / 2;
+        soundTime = newTime;
+    }
+
+    return { Actual:songTime, Smooth:Math.max(0, newTime) };
+}
+
+function gridRect(s) {
+    let cx = windowWidth / 2;
+    let cy = windowHeight / 2;
+
+    let x = cx - s / 2;
+    let y = cy - s / 2;
+
+    return { X: Math.floor(x) + 0.5, Y: Math.floor(y) + 0.5 }
+}
+
+function drawNote(note, x, y, s, a) {
+    if (a == null)
+        a = 1;
+
+    let third = s / 3;
+
+    stroke('rgba(0,255,255,' + a + ')');
+
+    for (let ny = 0; ny < 3; ny++) {
+        for (let nx = 0; nx < 3; nx++) {
+            if (note.X == nx && note.Y == ny) {
+                fill('rgba(0,200,200,' + a + ')');
+            } else {
+                fill('rgba(0,100,100,' + a + ')');
+            }
+            rect(x + nx * third, y + ny * third, third, third);
+        }
+    }
+}
+
+function drawGridNote(x, y, s, a) {
+    if (a == null)
+        a = 1;
+
+    stroke('rgba(0,255,255,' + a + ')');
+    fill('rgba(0,200,200,' + a*0.5 + ')');
+
+    x = Math.floor(x);
+    y = Math.floor(y);
+
+    //if (strokeWidth % 2 != 0) {
+        x = 0.5 + x;
+        y = 0.5 + y;
+    //}
+
+    rect(x, y, s, s);
+}
+
+function drawNotes(songTime, smoothTime) {
+    if (sound == null || notes.length == 0)
+        return null;
+
+    let toPass = [];
 
     for (let i = 0; i < notes.length; i++) {
         let note = notes[i];
 
         let position = note.Time / 1000 * noteSpeed;
-        let songPosition = songTime * noteSpeed;
+        let songPosition = smoothTime * noteSpeed;
         let x = screenX + position - songPosition;
+        let passed = songTime > note.Time / 1000; //x <= screenX;
 
-        if (x <= screenX){
+        if (passed) {
             hitIndex = Math.max(hitIndex, i);
+        } else {
+            toPass.push(note);
         }
 
-        stroke('rgb(0,255,255)');
+        if (x >= windowWidth)
+            break;
+        if (x < -50)
+            continue;
 
-        //rect(x, 10, 50, 50);
-
-        for (let ny = 0; ny < 3; ny++) {
-            for (let nx = 0; nx < 3; nx++) {
-                if (note.X == nx && note.Y == ny) {
-                    fill('rgb(0,200,200)');
-                } else {
-                    fill('rgb(0,100,100)');
-                }
-                rect(x + nx * third, 10 + ny * third, third, third);
-            }
-        }
+        drawNote(note, x, 10, 50, passed ? 0.5 : 1);
     }
 
-    if (hitIndex != lastHit){
+    if (hitIndex != lastHit) {
         lastHit = hitIndex;
 
-        brightness = 128;
+        brightness = 64;
 
-        hitSound.play();
+        if (hitSound != null && hitSound.isLoaded())
+            hitSound.play();
     }
+
+    return toPass;
+}
+
+function getCursor(songTime, last, next) {
+    if (last == null)
+        last = startNote;
+
+    if (next == null)
+        next = last;
+
+    var timeDiff = (next.Time - last.Time)/1000;
+    var timePos = songTime - last.Time / 1000;
+
+    var progress = Math.max(0, Math.min(1, timeDiff == 0 ? 1 : timePos / timeDiff));
+
+    progress = Math.sin(progress * Math.PI / 2);
+
+    var s = Math.sin(progress * Math.PI);
+
+    let lx = last.X;
+    let ly = last.Y;
+
+    let nx = next.X;
+    let ny = next.Y;
+
+    var x = lx + (nx - lx) * progress;
+    var y = ly + (ny - ly) * progress;
+
+    return { X: x, Y: y, Scale: s }
+}
+
+function drawGrid(songTime, toPass) {
+    let r = gridRect(gridSize);
+
+    strokeWeight(3);
+    fill(8);
+    stroke(200);
+    rect(r.X, r.Y, gridSize, gridSize);
+
+    if (toPass == null || toPass.length == 0)
+        return;
+    
+    let size = gridSize / 3;
+    let scaledSize = size * 0.75;
+    let gapSize = (size - scaledSize) / 2;
+
+    for (let i = 0; i < toPass.length; i++) {
+        let note = toPass[i];
+
+        let left = note.Time/1000 - songTime;
+        let alpha = Math.pow(1 - Math.min(1, left / 1), 3);
+
+        if (alpha < 0.05)
+            break;
+
+        let x = r.X + (note.X * size + gapSize);
+        let y = r.Y + (note.Y * size + gapSize);
+
+        drawGridNote(x, y, scaledSize, alpha);
+    }
+
+    if (notes.length > 0) {
+        let last = notes[hitIndex];
+        let next = hitIndex < notes.length - 1 ? notes[hitIndex + 1] : null;
+
+        let c = getCursor(songTime, last, next);
+
+        let x = r.X + (c.X * size + gapSize);
+        let y = r.Y + (c.Y * size + gapSize);
+
+        let scale = 1 + c.Scale * 0.5;
+        let s = scaledSize * 0.25 * scale;
+
+        stroke('rgba(255,255,255,1)');
+        fill('rgba(200,200,200,0.5)');
+        rect(x - s / 2 + scaledSize / 2, y - s / 2 + scaledSize / 2, s, s);
+    }
+
+    strokeWeight(1);
 }
 
 function draw() {
-    brightness = Math.max(32, brightness - deltaTime / 1000 * 512);
+    blendMode(BLEND);
+
+    brightness = Math.max(32, brightness - deltaTime / 1000 * 256);
 
     background(Math.floor(brightness));
 
@@ -116,7 +265,13 @@ function draw() {
     fill(16);
     rect(0, 0, width, 70.5);
 
-    drawNotes();
+    blendMode(LIGHTEST);
+    
+    let times = getTime();
+
+    let toPass = drawNotes(times.Actual, times.Smooth);
+
+    drawGrid(times.Smooth, toPass);
 
     stroke('rgb(255,200,0)');
     line(screenX + 0.5, 0, screenX + 0.5, 70);
@@ -143,7 +298,9 @@ function loadMap(text) {
 
         notes.push(note);
     }
-    
+
+    startNote = { X:1, Y:1, Time:0 };
+
     soundLink = link;
 
     preload();
@@ -162,6 +319,7 @@ function onLoadSuccess(data) {
     loadMap(data);
 }
 function onLoadFail() {
+    let container = $("#sse-menu-main")[0];
     container.setAttribute("style", "");
 }
 

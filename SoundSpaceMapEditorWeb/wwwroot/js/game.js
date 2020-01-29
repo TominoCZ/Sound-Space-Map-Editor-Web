@@ -17,17 +17,84 @@ let brightness = 32;
 let soundLink;
 let soundTime = 0;
 let soundTimeLast = 0;
-let sound;
+let sound = null;
 
 let hitSound;
 let clickSound;
+
+let bypass = false;
+
+function Sound(path, loadedEvt) {
+    this.sound = loadSound(path, loadedEvt);
+    this.time = 0;
+    this.lastTimePlayed = 0;
+    this.synced = false;
+    this.isPlaying = false;
+    this.isPaused = false;
+
+    this.isLoaded = () => {
+        return this.sound.isLoaded();
+    };
+
+    this.GetTime = () => {
+        return this.time;
+    };
+
+    this.Tick = (delta) => {
+        if (!this.isLoaded())
+            return;
+
+        if (!this.synced && this.isPlaying && this.sound.isPlaying) {
+            let current = this.sound.currentTime();
+
+            if (current !== 0 && current !== this.lastTimePlayed) {
+                this.synced = true;
+
+                this.time += this.sound.currentTime() - this.lastTimePlayed;
+            }
+        } else if (this.isPlaying) {
+            this.time += delta;
+        }
+    };
+    this.Play = () => {
+        this.isPlaying = true;
+        this.isPaused = false;
+
+        this.sound.play(this.GetTime());
+    };
+    this.Pause = () => {
+        this.isPlaying = false;
+        this.isPaused = true;
+        this.synced = false;
+
+        this.lastTimePlayed = this.sound.currentTime();
+
+        this.sound.pause();
+    };
+    this.Stop = () => {
+        this.isPlaying = false;
+        this.isPaused = false;
+
+        this.synced = false;
+
+        this.time = 0;
+        this.lastTimePlayed = 0;
+
+        this.sound.stop();
+    };
+    this.SetVolume = (v) => {
+        this.sound.setVolume(v);
+    };
+}
 
 function setup() {
     createCanvas(windowWidth, windowHeight, P2D);
 }
 
 function windowResized() {
+    bypass = true;
     resizeCanvas(windowWidth, windowHeight);
+    bypass = false;
 }
 
 function mouseClicked() {
@@ -39,10 +106,10 @@ function keyPressed(evt) {
         return;
 
     if (evt.key == ' ') {
-        if (sound.isPaused())
-            sound.play(sound.currentTime());
+        if (!sound.isPlaying)
+            sound.Play(); //sound.currentTime());
         else
-            sound.pause();
+            sound.Pause();
     }
 }
 
@@ -50,8 +117,8 @@ function preload() {
     if (soundLink == null)
         return;
 
-    sound = loadSound(soundLink, soundLoaded);
-    sound.setVolume(0.1);
+    sound = new Sound(soundLink, soundLoaded);
+    sound.SetVolume(0.1);
 
     if (hitSound == null) {
         hitSound = loadSound("/sounds/hit.wav");
@@ -65,27 +132,30 @@ function preload() {
 
 function getTime() {
     if (sound == null)
-        return { Actual:0, Smooth:0 };
+        return { Actual: 0, Smooth: 0 };
 
-    let songTime = sound.currentTime();
+    /*
+    let songTime = sound.GetTime();
     let newTime = songTime;
 
     let diff = songTime - soundTimeLast;
 
-    soundTimeLast = songTime;
-
-    if (sound.isPaused() && sound.currentTime() == 0) {
+    if (sound.isPaused && sound.GetTime() == 0) {
         songTime = soundTime;
-        newTime = soundTime;
+        //newTime = soundTime;
     }
-    else if (sound.isPlaying() && sound.currentTime() > 0) {
+    else if (sound.isPlaying && sound.GetTime() > 0) {
         diff = deltaTime / 1000 - diff;
 
-        newTime += diff - deltaTime / 1000 / 2;
-        soundTime = newTime;
+        newTime += diff;// - deltaTime / 1000 / 2;
+        soundTime = songTime;
     }
 
-    return { Actual:songTime, Smooth:Math.max(0, newTime) };
+    soundTimeLast = songTime;
+
+    return { Actual: songTime, Smooth: Math.max(0, newTime) };
+    */
+    return { Actual: sound.GetTime(), Smooth: sound.GetTime() };
 }
 
 function gridRect(s) {
@@ -123,14 +193,14 @@ function drawGridNote(x, y, s, a) {
         a = 1;
 
     stroke('rgba(0,255,255,' + a + ')');
-    fill('rgba(0,200,200,' + a*0.5 + ')');
+    fill('rgba(0,200,200,' + a * 0.5 + ')');
 
     x = Math.floor(x);
     y = Math.floor(y);
 
     //if (strokeWidth % 2 != 0) {
-        x = 0.5 + x;
-        y = 0.5 + y;
+    x = 0.5 + x;
+    y = 0.5 + y;
     //}
 
     rect(x, y, s, s);
@@ -183,7 +253,7 @@ function getCursor(songTime, last, next) {
     if (next == null)
         next = last;
 
-    var timeDiff = (next.Time - last.Time)/1000;
+    var timeDiff = (next.Time - last.Time) / 1000;
     var timePos = songTime - last.Time / 1000;
 
     var progress = Math.max(0, Math.min(1, timeDiff == 0 ? 1 : timePos / timeDiff));
@@ -214,7 +284,7 @@ function drawGrid(songTime, toPass) {
 
     if (toPass == null || toPass.length == 0)
         return;
-    
+
     let size = gridSize / 3;
     let scaledSize = size * 0.75;
     let gapSize = (size - scaledSize) / 2;
@@ -222,7 +292,7 @@ function drawGrid(songTime, toPass) {
     for (let i = 0; i < toPass.length; i++) {
         let note = toPass[i];
 
-        let left = note.Time/1000 - songTime;
+        let left = note.Time / 1000 - songTime;
         let alpha = Math.pow(1 - Math.min(1, left / 1), 3);
 
         if (alpha < 0.05)
@@ -255,18 +325,24 @@ function drawGrid(songTime, toPass) {
 }
 
 function draw() {
+    if (bypass)
+        return;
+
     blendMode(BLEND);
 
     brightness = Math.max(32, brightness - deltaTime / 1000 * 256);
 
     background(Math.floor(brightness));
 
+    if (sound != null)
+        sound.Tick(deltaTime / 1000);
+
     stroke(200);
     fill(16);
     rect(0, 0, width, 70.5);
 
     blendMode(LIGHTEST);
-    
+
     let times = getTime();
 
     let toPass = drawNotes(times.Actual, times.Smooth);
@@ -299,7 +375,7 @@ function loadMap(text) {
         notes.push(note);
     }
 
-    startNote = { X:1, Y:1, Time:0 };
+    startNote = { X: 1, Y: 1, Time: 0 };
 
     soundLink = link;
 
@@ -324,7 +400,7 @@ function onLoadFail() {
 }
 
 function soundLoaded() {
-    sound.play();
+    sound.Play();
 }
 
 function Note(x, y, ms) {
